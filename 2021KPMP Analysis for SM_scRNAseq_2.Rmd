@@ -1,0 +1,850 @@
+---
+title: "KPMP scRNAseq Data Analysis for Soumya Maity"
+subtitle: "Exploration of MTAP and APRT Expression"
+author: "Jonathan Nelson"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 4
+    toc_float: 
+      collapsed: true
+      smooth_scroll: false
+    number_sections: no
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages, echo=T, error=FALSE, message=FALSE, warning=FALSE}
+
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("Seurat")) {install.packages("Seurat"); require("Seurat")}
+if (!require("SeuratDisk")) {install.packages("SeuratDisk"); require("SeuratDisk")}
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!requireNamespace('BiocManager', quietly = TRUE)) {install.packages('BiocManager'); require("BiocManager")}
+if (!require("here")) {install.packages("here"); require("here")}
+if (!require("paletteer")) {install.packages("paletteer"); require("paletteer")} # color palette
+if (!require("grDevices")) {install.packages("grDevices"); require("grDevices")} # for grDevices palette
+if (!require("tidyverse")) {install.packages("tidyverse"); require("tidyverse")} # for data frame transformation
+if (!require("tibble")) {install.packages("tibble"); require("tibble")} # for table transformation
+if (!require("geneName")) {install.packages("geneName"); require("geneName")}
+if (!require("ggrepel")) {install.packages("ggrepel"); require("ggrepel")}
+if (!require("gghighlight")) {install.packages("gghighlight"); require("gghighlight")}
+if (!require("ggpmisc")) {install.packages("ggpmisc"); require("ggpmisc")}
+if (!require("ggupset")) {install.packages("ggupset"); require("ggupset")}
+if (!require("RColorBrewer")) {install.packages("RColorBrewer"); require("RColorBrewer")}
+if (!require("viridis")) {install.packages("viridis"); require("viridis")}
+
+library(SeuratData)
+library(openxlsx)
+library(gplots)
+library(ggvenn)
+
+```
+
+# Introduction
+
+This file was made to explore the expression of MTAP and APRT in the KPMP dataset in Healthy vs. AKI/CKD as well as after subsetting PT cells and classifying based on expression of KIM1 (HAVCR1).
+
+## Additions to Analysis of single-cell data on 11.16.23
+
+# Notes
+
+In the 2024 KPMP scRNAseq (and I think also in the snRNAseq file) there is some mismatch between the *subclass.l1* and *subclass.l2* annotations. For example, subsetting subclass.l1 == "PT" and then looking at subclass.l2, there are some cells that are not PT.
+
+Working with the KPMP scRNAseq file: **PREMIERE_Alldatasets_08132021.h5Seurat**
+
+# Interpretation from JWN (11.13.24)
+
+1) MTAP and APRT are weakly expressed in this dataset (Especially true for MTAP) (**Section 4**).
+2) MTAP and APRT appear more abundant in PT cells experiencing AKI (but the sampling of cells is pretty small) (**Section 5**).
+3) MTAP *BUT NOT* APRT is more abundant in PT cells that express KIM1 (indicating injury) (**Section 6**).
+
+# 2021 scRNASeq KPMP Object
+
+## Load KPMP object (2021 data file)
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+Sys.time()
+KPMP <- LoadH5Seurat(here("PREMIERE_Alldatasets_08132021.h5Seurat")) 
+Sys.time()
+
+head(KPMP@meta.data)
+
+DimPlot(KPMP, group.by = "subclass.l1")
+
+KPMP
+
+```
+
+## Add Clinical information into meta.data
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+meta <- read.csv(here("OpenAccessClinicalData.csv"))
+
+df <- FetchData(KPMP, "SpecimenID") %>% rownames_to_column(var = "CellID")
+
+df <- left_join(df, meta, by = c("SpecimenID" = "Participant.ID")) %>% column_to_rownames(var = "CellID")
+
+KPMP <- AddMetaData(KPMP, df)
+
+head(KPMP@meta.data)
+
+unique(KPMP@meta.data$Enrollment.Category)
+
+KPMP@meta.data$Enrollment.Category <- factor(KPMP@meta.data$Enrollment.Category, levels = c("Healthy Reference", "AKI", "CKD"))
+
+```
+
+
+# Overall Expression of MTAP and APRT
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+Idents(KPMP) <- KPMP@meta.data$subclass.l1
+
+FeaturePlot(KPMP, "MTAP", order = TRUE)
+
+VlnPlot(KPMP, features = "MTAP", group.by = "subclass.l1") + ggtitle("MTAP Expression in all cells")
+
+VlnPlot(KPMP, features = "MTAP", group.by = "subclass.l1") + ggtitle("MTAP Expression in all cells")
+
+
+FeaturePlot(KPMP, "APRT", order = TRUE)
+
+VlnPlot(KPMP, features = "APRT", group.by = "subclass.l1") + ggtitle("APRT Expression in all cells")
+
+```
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.width=10}
+
+DotPlot(
+  KPMP,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = "subclass.l1",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("MTAP Expression in all cells")
+
+DotPlot(
+  KPMP,
+  assay = NULL,
+  features = c("APRT"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = "subclass.l1",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("APRT Expression in all cells")
+
+# rotate x-axis labels on the plot above
+
+
+
+
+
+  
+
+```
+
+
+# Expression of MTAP and APRT in AKI
+
+## MTAP
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+VlnPlot(KPMP, features = "MTAP", group.by = "Enrollment.Category", pt.size = 0.1) + ggtitle("MTAP in all cells")
+
+VlnPlot(KPMP, features = "MTAP", idents = "PT", group.by = "Enrollment.Category", pt.size = 0.1) + ggtitle("MTAP in PT cells")
+
+
+DotPlot(
+  KPMP,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = "Enrollment.Category",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("MTAP in all cells")
+
+DotPlot(
+  KPMP,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = "PT",
+  group.by = "Enrollment.Category",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("MTAP in PT cells")
+
+
+
+
+```
+
+## APRT
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+VlnPlot(KPMP, features = "APRT", group.by = "Enrollment.Category", pt.size = 0.1) + ggtitle("APRT in all cells")
+
+VlnPlot(KPMP, features = "APRT", idents = "PT", group.by = "Enrollment.Category", pt.size = 0.1) + ggtitle("APRT in PT cells")
+
+
+DotPlot(
+  KPMP,
+  assay = NULL,
+  features = c("APRT"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = "Enrollment.Category",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("APRT in all cells")
+
+DotPlot(
+  KPMP,
+  assay = NULL,
+  features = c("APRT"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = "PT",
+  group.by = "Enrollment.Category",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("APRT in PT cells")
+
+
+
+```
+
+
+# Clasify Cells by Kim1 Expression
+
+## Subset PT cells
+
+Kim1 = HAVCR1
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+KPMP_PT <- subset(KPMP, idents = c("PT"))
+
+DimPlot(KPMP_PT, group.by = "subclass.l2") + ggtitle("KPMP PT cells")
+
+VlnPlot(KPMP_PT, features = "HAVCR1", group.by = "subclass.l2", pt.size = 0.1) + ggtitle("HAVCR1 in PT cells")
+
+VlnPlot(KPMP_PT, features = "HAVCR1", group.by = "subclass.l2", split.by = "Enrollment.Category", pt.size = 0.1) + ggtitle("HAVCR1 in PT cells")
+
+KPMP_PT@meta.data$KIM1status <- ifelse(GetAssayData(KPMP_PT, assay = "RNA", slot = "data")["HAVCR1", ] > 0, "yes", "no")
+
+DimPlot(KPMP_PT, group.by = "KIM1status", label = T)
+
+table(KPMP_PT@meta.data$KIM1status, KPMP_PT@meta.data$subclass.l2)
+
+table(KPMP_PT@meta.data$KIM1status, KPMP_PT@meta.data$Enrollment.Category)
+
+```
+
+### MTAP
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+VlnPlot(KPMP_PT, features = "MTAP", group.by = "KIM1status", pt.size = 0.1) + ggtitle("MTAP in PT cells by KIM1 Expression")
+
+DotPlot(
+  KPMP_PT,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = "PT",
+  group.by = "KIM1status",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("MTAP in PT cells by KIM1 Expression")
+
+
+
+```
+
+### APRT
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+VlnPlot(KPMP_PT, features = "APRT", group.by = "KIM1status", pt.size = 0.1) + ggtitle("APRT in PT cells by KIM1 Expression")
+
+DotPlot(
+  KPMP_PT,
+  assay = NULL,
+  features = c("APRT"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = "PT",
+  group.by = "KIM1status",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("APRT in PT cells by KIM1 Expression")
+
+
+```
+
+## Only in AKI PT Cells
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+Idents(KPMP_PT) <- KPMP_PT@meta.data$Enrollment.Category
+
+KPMP_PT2 <- subset(KPMP_PT, idents = c("AKI"))
+
+DimPlot(KPMP_PT2, group.by = "subclass.l2") + ggtitle("KPMP AKI PT cells")
+
+VlnPlot(KPMP_PT2, features = "HAVCR1", group.by = "subclass.l2", pt.size = 0.1) + ggtitle("HAVCR1 in AKI PT cells")
+
+DimPlot(KPMP_PT2, group.by = "KIM1status", label = T)
+
+table(KPMP_PT2@meta.data$KIM1status, KPMP_PT2@meta.data$subclass.l2)
+
+table(KPMP_PT2@meta.data$KIM1status, KPMP_PT2@meta.data$Enrollment.Category)
+
+```
+
+
+### MTAP
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+VlnPlot(KPMP_PT2, features = "MTAP", group.by = "KIM1status", pt.size = 0.1) + ggtitle("MTAP in AKI PT cells by KIM1 Expression")
+
+DotPlot(
+  KPMP_PT2,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = "KIM1status",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("MTAP in AKI PT cells by KIM1 Expression")
+
+
+
+```
+
+### APRT
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+VlnPlot(KPMP_PT2, features = "APRT", group.by = "KIM1status", pt.size = 0.1) + ggtitle("APRT in AKI PT cells by KIM1 Expression")
+
+DotPlot(
+  KPMP_PT2,
+  assay = NULL,
+  features = c("APRT"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = "KIM1status",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() + ggtitle("APRT in AKI PT cells by KIM1 Expression")
+
+
+```
+
+# Figures for Manuscript
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+head(KPMP@meta.data)
+
+```
+
+### Pre-Figure Work
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+levels(KPMP@meta.data$subclass.l1)
+
+KPMP@meta.data$subclass.l1 <- factor(KPMP@meta.data$subclass.l1, levels = c("PT", "DTL", "ATL/TAL", "TAL", "DCT", "CNT", "PC", "IC", "POD", "PEC", "EC", "Interstitial", "Immune"))
+
+DimPlot(KPMP, group.by = "subclass.l1") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(size = 20))
+
+
+KPMP_subset <- subset(KPMP, idents = c("PT"))
+
+DimPlot(KPMP_subset, group.by = "subclass.l1") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20))
+
+Idents(KPMP_subset) <- KPMP_subset@meta.data$Enrollment.Category
+
+KPMP_subset <- subset(x = KPMP_subset, idents = c("Healthy Reference", "AKI"))
+
+DimPlot(KPMP_subset, group.by = "subclass.l1", split.by = "Enrollment.Category") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20))
+
+
+DimPlot(KPMP_subset, group.by = "subclass.l2") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20))
+
+KPMP_subset@meta.data$subclass.l2 <- factor(KPMP_subset@meta.data$subclass.l2, levels = c("PT-S1/S2", "PT-S3", "aPT", "dPT", "dPT/DTL", "cycEPI"))
+
+DimPlot(KPMP_subset, group.by = "subclass.l2") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(size = 20))
+
+
+
+
+
+
+```
+## Figure 1
+
+### Figure 1A
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+DimPlot(KPMP, group.by = "subclass.l1") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(size = 20))
+
+DimPlot(KPMP_subset, group.by = "subclass.l2") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(size = 20))
+
+```
+
+### Figure 1b
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.width=10, fig.height=6}
+
+VlnPlot(
+  object = KPMP_subset, 
+  features = "MTAP", 
+  group.by = "subclass.l2", 
+  split.by = "Enrollment.Category"
+) +
+  theme_classic() +
+  theme(
+    axis.line = element_line(size = 1, colour = "black"),
+    text = element_text(size = 20),
+    plot.title = element_text(hjust = 0.5),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(colour = "black"),  # X-axis font color
+    axis.text.y = element_text(colour = "black")   # Y-axis font color
+  ) +
+  ylab("MTAP Expression") +
+  ggtitle("MTAP Expression Across PT Cells")
+
+
+```
+
+### Figure 1c
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.width=10, fig.height=6}
+
+VlnPlot(
+  object = KPMP_subset, 
+  features = "HAVCR1", 
+  group.by = "subclass.l2", 
+  split.by = "Enrollment.Category"
+) +
+  theme_classic() +
+  theme(
+    axis.line = element_line(size = 1, colour = "black"),
+    text = element_text(size = 20),
+    plot.title = element_text(hjust = 0.5),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(colour = "black"),  # X-axis font color
+    axis.text.y = element_text(colour = "black")   # Y-axis font color
+  ) +
+  ylab("HAVCR1 Expression") +
+  ggtitle("HAVCR1 Expression Across PT Cells")
+
+
+```
+
+### Figure 1d
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.width=10, fig.height=4}
+
+DotPlot(
+  KPMP_subset,
+  assay = NULL,
+  features = c("MTAP", "HAVCR1"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  group.by = "Enrollment.Category",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() +
+  theme_classic() +
+  theme(
+    axis.line = element_line(size = 1, colour = "black"),
+    text = element_text(size = 20),
+    plot.title = element_text(hjust = 0.5),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(colour = "black"),  # X-axis font color
+    axis.text.y = element_text(colour = "black")   # Y-axis font color
+  ) +
+  ggtitle("HAVCR1 and MTAP Expression") +
+  xlab(label = "")
+
+```
+
+### Figure 1d
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+KPMP_subset@meta.data$KIM1status <- ifelse(GetAssayData(KPMP_subset, assay = "RNA", slot = "data")["HAVCR1", ] > 0, "yes", "no")
+
+DimPlot(KPMP_subset, group.by = "KIM1status", order = T) + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5)) +
+  ggtitle("PT Cells Categorized by KIM1 Expression")
+
+FeaturePlot(KPMP_subset, "HAVCR1", order = T) + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5))+
+  ggtitle("KIM1 Expression")
+
+
+```
+
+### Figure 1e
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.width=10, fig.height=5}
+
+DotPlot(
+  KPMP_subset,
+  assay = "RNA",  # Specify the assay explicitly if applicable
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  group.by = "KIM1status",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = TRUE,
+  scale.by = "radius"
+) +
+  coord_flip() +
+  theme_classic() +
+  theme(
+    axis.line = element_line(size = 1, colour = "black"),
+    text = element_text(size = 20),
+    plot.title = element_text(hjust = 0.5),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_text(size = 20, colour = "black"),
+    axis.title.y = element_text(size = 15, colour = "black"), # Force y-axis title
+    axis.text.x = element_text(size = 25, colour = "black"),  # X-axis font color
+    axis.text.y = element_text(colour = "black")   # Y-axis font color
+  ) +
+  ggtitle("MTAP Expression Based on KIM1 Expression") +
+  ylab("Does Cell Express KIM1?") +  
+  xlab("")
+
+
+```
+
+## Figure S1
+
+### Figure S1a
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+KPMP@meta.data$subclass.l1 <- factor(KPMP@meta.data$subclass.l1, levels = c("PT", "DTL", "ATL/TAL", "TAL", "DCT", "CNT", "PC", "IC", "POD", "PEC", "EC", "Interstitial", "Immune"))
+
+Idents(KPMP) <- KPMP@meta.data$Enrollment.Category
+
+KPMP_subset2 <- subset(x = KPMP, idents = c("Healthy Reference", "AKI"))
+
+DimPlot(KPMP_subset2, group.by = "subclass.l1") + ggtitle(NULL) + xlab("UMAP 1") + ylab("UMAP 2") +
+  theme_classic() +
+  theme(axis.line = element_line(size = 1, colour = "black"),
+        text = element_text(size=20)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5)) +
+    ggtitle("Healthy Reference and AKI Cells")
+
+
+```
+
+### Figure S1b
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.height=4, fig.width=8}
+
+DotPlot(
+  KPMP_subset2,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  group.by = "Enrollment.Category",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() +
+  theme_classic() +
+  theme(
+    axis.line = element_line(size = 1, colour = "black"),
+    text = element_text(size = 20),
+    plot.title = element_text(hjust = 0.5),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(colour = "black"),  # X-axis font color
+    axis.text.y = element_text(colour = "black")   # Y-axis font color
+  ) +
+  ggtitle("MTAP Expression by Disease") +
+  xlab(label = "")
+
+```
+
+### Figure S1c
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.width=12, fig.height=4}
+
+KPMP_subset3 <- subset(x = KPMP, idents = c("Healthy Reference"))
+
+KPMP_subset4 <- subset(x = KPMP, idents = c("AKI"))
+
+DotPlot(
+  KPMP_subset3,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  group.by = "subclass.l1",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() +
+  theme_classic() +
+  theme(
+    axis.line = element_line(size = 1, colour = "black"),
+    text = element_text(size = 20),
+    plot.title = element_text(hjust = 0.5),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, colour = "black"),  # X-axis font color
+    axis.text.y = element_text(colour = "black")   # Y-axis font color
+  ) +
+  ggtitle("MTAP Expression by Cell Type in Healthy Reference") +
+  xlab(label = "")
+
+DotPlot(
+  KPMP_subset4,
+  assay = NULL,
+  features = c("MTAP"),
+  cols = c("lightgrey", "blue"),
+  col.min = -2.5,
+  col.max = 2.5,
+  dot.min = 0,
+  dot.scale = 6,
+  group.by = "subclass.l1",
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = T,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA
+) + coord_flip() +
+  theme_classic() +
+  theme(
+    axis.line = element_line(size = 1, colour = "black"),
+    text = element_text(size = 20),
+    plot.title = element_text(hjust = 0.5),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, colour = "black"),  # X-axis font color
+    axis.text.y = element_text(colour = "black")   # Y-axis font color
+  ) +
+  ggtitle("MTAP Expression by Cell Type in AKI") +
+  xlab(label = "")
+
+
+```
+
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+head(KPMP_subset@meta.data)
+
+```
+
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+Sys.time()
+
+sessionInfo()
+
+```
