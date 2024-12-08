@@ -838,6 +838,15 @@ DotPlot(
 
 head(KPMP_subset@meta.data)
 
+table(KPMP_subset@meta.data$SpecimenID, KPMP_subset@meta.data$Enrollment.Category)
+
+# Create the contingency table
+enrollment_table <- table(KPMP_subset@meta.data$SpecimenID, KPMP_subset@meta.data$Enrollment.Category)
+
+# Count the number of unique samples (rows with non-zero entries) for each category
+sample_counts <- colSums(enrollment_table > 0)
+print(sample_counts)
+
 ```
 
 
